@@ -1,0 +1,99 @@
+name: Enterprise Shift-Left Security Gate
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  security-gate:
+    name: Security Gate Pipeline
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # --- Pre-commit / IaC layer -------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov (IaC scan)
+        run: checkov --config-file .checkov.yaml -d terraform/ || true
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Run TFLint
+        working-directory: terraform
+        run: |
+          tflint --init
+          tflint || true
+
+      # --- Container security layer -----------------------------------
+      - name: Build reference container image
+        run: docker build -t devsecops-gateway:local ./app
+
+      - name: Run Trivy container scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "devsecops-gateway:local"
+          format: "json"
+          output: "trivy-results.json"
+          severity: "CRITICAL,HIGH"
+
+      # --- OPA policy & triage layer ------------------------------------
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Validate policy syntax
+        run: |
+          opa check policies/policy.rego
+          opa check policies/sla_gate.rego
+
+      - name: Run exploitability + SLA triage gate
+        id: gate
+        run: python3 scripts/process-results.py policies/test_data.json
+
+      - name: File Jira ticket on failure
+        if: failure() && steps.gate.outcome == 'failure'
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+        run: python3 scripts/create-ticket.py scan-results/triage-summary.json
+
+      - name: Upload triage summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: triage-summary
+          path: scan-results/triage-summary.json
+
+  deploy:
+    name: Deploy (GitOps)
+    needs: security-gate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && needs.security-gate.result == 'success'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Placeholder - hand off to ArgoCD
+        run: |
+          echo "Gate passed. In production this step syncs the ArgoCD"
+          echo "Application manifest, triggering a GitOps deployment to"
+          echo "the target Kubernetes cluster."

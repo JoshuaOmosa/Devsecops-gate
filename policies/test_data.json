@@ -1,0 +1,44 @@
+{
+  "scan_date": "2024-09-14T10:30:00Z",
+  "vulnerabilities": [
+    {
+      "id": "CVE-2021-12345",
+      "package_name": "node",
+      "package_version": "12.22.0",
+      "severity": "CRITICAL",
+      "cvss_score": 9.1,
+      "description": "Remote code execution in Node.js HTTP parser",
+      "discovered_date": "2024-09-01T00:00:00Z",
+      "exploit_available": true,
+      "public_exploit": true,
+      "active_exploitation": true,
+      "false_positive": false
+    },
+    {
+      "id": "CVE-2022-67890",
+      "package_name": "express",
+      "package_version": "4.17.1",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "description": "Security update no fix available - dev dependency only",
+      "discovered_date": "2024-09-05T00:00:00Z",
+      "exploit_available": false,
+      "public_exploit": false,
+      "active_exploitation": false,
+      "false_positive": true
+    },
+    {
+      "id": "CVE-2020-11111",
+      "package_name": "test-package",
+      "package_version": "1.0.0",
+      "severity": "MEDIUM",
+      "cvss_score": 5.3,
+      "description": "Vulnerability in test-package - build-time only",
+      "discovered_date": "2024-08-20T00:00:00Z",
+      "exploit_available": false,
+      "public_exploit": false,
+      "active_exploitation": false,
+      "false_positive": true
+    }
+  ]
+}
