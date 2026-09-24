@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm config set registry https://registry.npmjs.org/ && \
     npm ci --only=production
-COPY src/server.js ./
+COPY server.js ./
 
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
