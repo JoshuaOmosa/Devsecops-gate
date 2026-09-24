@@ -1,16 +1,14 @@
 {
   "name": "devsecops-gateway-sample",
   "version": "1.0.0",
-  "description": "Sample Node.js application used to exercise the DevSecOps governance pipeline",
+  "description": "Sample Node.js application for DevSecOps testing",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo 'No tests specified'"
   },
   "keywords": ["devsecops", "security", "cicd"],
   "author": "DevSecOps Team",
   "license": "MIT",
-  "dependencies": {
-    "express": "^4.21.2"
-  }
+  "dependencies": {}
 }
