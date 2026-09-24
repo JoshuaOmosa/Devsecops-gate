@@ -2,29 +2,22 @@
 """
 create-ticket.py
 
-Creates a Jira ticket for policy violations. If Jira is not configured
-(missing env vars), logs to a file instead and returns success.
+Creates a Jira ticket for policy violations. If Jira not configured,
+logs to a file instead.
 
 Environment variables (optional):
-    JIRA_URL          - Jira instance URL
-    JIRA_USER         - Jira username/email
-    JIRA_TOKEN        - Jira API token
-    JIRA_PROJECT_KEY  - Project key (e.g., DEVSECOPS)
-
-Usage:
-    python3 scripts/create-ticket.py scan-results/triage-summary.json
+    JIRA_URL, JIRA_USER, JIRA_TOKEN, JIRA_PROJECT_KEY
 """
 
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
 
 
 def create_ticket_in_jira(summary_data: dict) -> bool:
-    """Attempts to create a Jira ticket. Returns True if successful or
-    skipped gracefully."""
+    """Attempts to create a Jira ticket. Returns True if successful or gracefully skipped."""
     
     jira_url = os.getenv("JIRA_URL")
     jira_user = os.getenv("JIRA_USER")
@@ -149,7 +142,7 @@ def log_locally(summary_data: dict) -> None:
     os.makedirs("scan-results", exist_ok=True)
     
     ticket_log = {
-        "timestamp": datetime.now(datetime.timezone.utc).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "type": "security_gate_violation",
         "summary_data": summary_data
     }
