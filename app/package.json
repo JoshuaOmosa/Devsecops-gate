@@ -10,5 +10,7 @@
   "keywords": ["devsecops", "security", "cicd"],
   "author": "DevSecOps Team",
   "license": "MIT",
-  "dependencies": {}
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
