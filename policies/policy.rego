@@ -159,3 +159,12 @@ violation_report := report if {
 		},
 	}
 }
+
+triage[output] {
+    output := {
+        "allow": allow,
+        "violated_policies": violated_policies,
+        "noise_statistics": noise_statistics,
+        "sla_compliance_report": sla_compliance_report
+    }
+}

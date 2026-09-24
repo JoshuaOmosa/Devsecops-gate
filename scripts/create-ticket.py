@@ -149,7 +149,7 @@ def log_locally(summary_data: dict) -> None:
     os.makedirs("scan-results", exist_ok=True)
     
     ticket_log = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(datetime.timezone.utc).isoformat(),
         "type": "security_gate_violation",
         "summary_data": summary_data
     }

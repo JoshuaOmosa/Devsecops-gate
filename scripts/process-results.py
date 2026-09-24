@@ -24,7 +24,7 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POLICY_DIR = os.path.join(REPO_ROOT, "policies")
 RESULTS_DIR = os.path.join(REPO_ROOT, "scan-results")
-QUERY = "data.devsecops"
+QUERY = "data.devsecops.triage"
 
 
 def resolve_opa_binary() -> str:
