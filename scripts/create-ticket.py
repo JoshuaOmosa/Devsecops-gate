@@ -2,101 +2,182 @@
 """
 create-ticket.py
 
-Opens a Jira ticket for a blocked build, using the triage summary produced
-by process-results.py. Reads Jira credentials from environment variables so
-no secrets ever live in the repo:
+Creates a Jira ticket for policy violations. If Jira is not configured
+(missing env vars), logs to a file instead and returns success.
 
-    JIRA_BASE_URL   e.g. https://your-domain.atlassian.net
-    JIRA_EMAIL
-    JIRA_API_TOKEN
-    JIRA_PROJECT_KEY
-
-If credentials are not set, the script prints what it *would* have filed
-and exits 0 rather than failing the pipeline on missing secrets — this
-keeps local/demo runs working without a live Jira instance.
+Environment variables (optional):
+    JIRA_URL          - Jira instance URL
+    JIRA_USER         - Jira username/email
+    JIRA_TOKEN        - Jira API token
+    JIRA_PROJECT_KEY  - Project key (e.g., DEVSECOPS)
 
 Usage:
     python3 scripts/create-ticket.py scan-results/triage-summary.json
 """
-from __future__ import annotations
 
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
+from pathlib import Path
+from datetime import datetime
 
 
-def build_ticket_payload(summary: dict, project_key: str) -> dict:
-    violations = summary.get("violated_policies", [])
-    sla = summary.get("sla_compliance_report", {})
-    sla_breaches = sla.get("violations_detail", [])
-
-    lines = ["Automated DevSecOps Governance Gate failure.", "", "Policy violations:"]
-    lines += [f"- {msg}" for msg in violations] or ["- (none)"]
-    lines += ["", "SLA breaches:"]
-    lines += [
-        f"- {v['vulnerability_id']} ({v['severity']}) in {v['package']}: "
-        f"{v['overdue_by_days']}d overdue"
-        for v in sla_breaches
-    ] or ["- (none)"]
-
-    return {
+def create_ticket_in_jira(summary_data: dict) -> bool:
+    """Attempts to create a Jira ticket. Returns True if successful or
+    skipped gracefully."""
+    
+    jira_url = os.getenv("JIRA_URL")
+    jira_user = os.getenv("JIRA_USER")
+    jira_token = os.getenv("JIRA_TOKEN")
+    jira_project = os.getenv("JIRA_PROJECT_KEY", "DEVSECOPS")
+    
+    # If Jira not configured, log locally and return success
+    if not (jira_url and jira_user and jira_token):
+        print("[INFO] Jira not configured (missing env vars). "
+              "Logging to local file instead.")
+        log_locally(summary_data)
+        return True
+    
+    try:
+        import requests
+    except ImportError:
+        print("[WARNING] requests library not installed. "
+              "Falling back to local logging.")
+        log_locally(summary_data)
+        return True
+    
+    # Build Jira ticket
+    violations = summary_data.get("violated_policies", [])
+    sla_breaches = summary_data.get("sla_compliance_report", {}).get(
+        "violations_detail", [])
+    noise = summary_data.get("noise_statistics", {})
+    
+    description = format_ticket_description(violations, sla_breaches, noise)
+    
+    payload = {
         "fields": {
-            "project": {"key": project_key},
-            "summary": "DevSecOps Gate Blocked Build - Security Policy Violation",
-            "description": "\n".join(lines),
+            "project": {"key": jira_project},
             "issuetype": {"name": "Bug"},
-            "labels": ["devsecops", "automated", "security-gate"],
+            "summary": f"[DevSecOps] Security gate violations detected "
+                       f"({len(violations)} blocking, "
+                       f"{len(sla_breaches)} SLA breaches)",
+            "description": description,
+            "labels": ["devsecops", "security-gate", "auto-created"],
+            "priority": {"name": "High" if violations else "Medium"}
         }
     }
-
-
-def file_ticket(payload: dict, base_url: str, email: str, token: str) -> None:
-    import base64
-
-    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
-    req = urllib.request.Request(
-        url=f"{base_url.rstrip('/')}/rest/api/2/issue",
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
-        headers={
-            "Authorization": f"Basic {auth}",
-            "Content-Type": "application/json",
-        },
-    )
+    
+    # Create ticket
+    auth = (jira_user, jira_token)
+    headers = {"Content-Type": "application/json"}
+    
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            print(f"Jira ticket created: {body.get('key')}")
-    except urllib.error.HTTPError as e:
-        print(f"[ERROR] Jira API returned {e.code}: {e.read().decode('utf-8')}")
-        sys.exit(1)
+        response = requests.post(
+            f"{jira_url}/rest/api/3/issue",
+            json=payload,
+            auth=auth,
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 201:
+            ticket = response.json()
+            ticket_key = ticket.get("key", "UNKNOWN")
+            print(f"[SUCCESS] Jira ticket created: {ticket_key}")
+            return True
+        else:
+            print(f"[ERROR] Jira API returned {response.status_code}: "
+                  f"{response.text}")
+            log_locally(summary_data)
+            return False
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to create Jira ticket: {e}")
+        log_locally(summary_data)
+        return False
+
+
+def format_ticket_description(violations: list, sla_breaches: list, 
+                               noise: dict) -> str:
+    """Formats the ticket description from findings."""
+    
+    lines = [
+        "DevSecOps Governance Gate Violation Report",
+        "",
+        "h2. Summary",
+        f"* Total findings: {noise.get('total_findings', 0)}",
+        f"* Actionable: {noise.get('actionable_findings', 0)}",
+        f"* Noise reduction: {noise.get('noise_reduction_percentage', 0)}%",
+        "",
+    ]
+    
+    if violations:
+        lines.extend([
+            "h2. Blocking Policy Violations",
+            "",
+        ])
+        for v in violations:
+            lines.append(f"* {v}")
+        lines.append("")
+    
+    if sla_breaches:
+        lines.extend([
+            "h2. SLA Breaches",
+            "",
+        ])
+        for breach in sla_breaches:
+            lines.append(
+                f"* {breach['vulnerability_id']} ({breach['severity']}) "
+                f"in {breach['package']}: "
+                f"{breach['overdue_by_days']}d overdue "
+                f"(SLA: {breach['sla_days']}d)"
+            )
+        lines.append("")
+    
+    lines.extend([
+        "h2. Next Steps",
+        "* Review the full triage report in scan-results/triage-summary.json",
+        "* Remediate blocking vulnerabilities to unblock the pipeline",
+        "* Update SLA tracking for overdue findings",
+    ])
+    
+    return "\n".join(lines)
+
+
+def log_locally(summary_data: dict) -> None:
+    """Logs findings to a local file instead of Jira."""
+    os.makedirs("scan-results", exist_ok=True)
+    
+    ticket_log = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "type": "security_gate_violation",
+        "summary_data": summary_data
+    }
+    
+    log_file = "scan-results/security-gate-violations.log.json"
+    with open(log_file, "w") as f:
+        json.dump(ticket_log, f, indent=2)
+    
+    print(f"[INFO] Violation log written to: {log_file}")
 
 
 def main() -> None:
-    summary_path = sys.argv[1] if len(sys.argv) > 1 else "scan-results/triage-summary.json"
-    if not os.path.exists(summary_path):
-        print(f"[ERROR] Triage summary not found: {summary_path}")
+    if len(sys.argv) < 2:
+        print("[ERROR] Usage: python3 scripts/create-ticket.py "
+              "<path/to/triage-summary.json>")
         sys.exit(1)
-
-    with open(summary_path, "r", encoding="utf-8") as f:
-        summary = json.load(f)
-
-    base_url = os.environ.get("JIRA_BASE_URL")
-    email = os.environ.get("JIRA_EMAIL")
-    token = os.environ.get("JIRA_API_TOKEN")
-    project_key = os.environ.get("JIRA_PROJECT_KEY", "SEC")
-
-    payload = build_ticket_payload(summary, project_key)
-
-    if not all([base_url, email, token]):
-        print("[INFO] JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN not set — "
-              "skipping live ticket creation. Payload that would be sent:")
-        print(json.dumps(payload, indent=2))
-        return
-
-    file_ticket(payload, base_url, email, token)
+    
+    summary_path = sys.argv[1]
+    
+    if not os.path.exists(summary_path):
+        print(f"[ERROR] Summary file not found: {summary_path}")
+        sys.exit(1)
+    
+    with open(summary_path, "r") as f:
+        summary_data = json.load(f)
+    
+    success = create_ticket_in_jira(summary_data)
+    sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":
