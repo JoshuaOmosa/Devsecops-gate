@@ -32,9 +32,16 @@ flowchart TD
 
     E -->|Fail Criteria| H[Block Build + Auto-File Jira Ticket]
 
-    style E fill:#f9f,stroke:#333,stroke-width:2px
-    style H fill:#fdd,stroke:#900,stroke-width:2px
-    style G fill:#dfd,stroke:#090,stroke-width:2px
+    style E fill:#8b3a8b,color:#fff,stroke:#333,stroke-width:2px
+    style H fill:#c41e3a,color:#fff,stroke:#900,stroke-width:2px
+    style G fill:#2d5016,color:#fff,stroke:#090,stroke-width:2px
+    style A fill:#f5f5f5,color:#000,stroke:#333
+    style B fill:#f5f5f5,color:#000,stroke:#333
+    style C fill:#e8f4f8,color:#000,stroke:#0066cc
+    style D fill:#e8f4f8,color:#000,stroke:#0066cc
+    style F fill:#e8f4f8,color:#000,stroke:#0066cc
+    style E1 fill:#fff3cd,color:#000,stroke:#ff9800
+    style E2 fill:#fff3cd,color:#000,stroke:#ff9800
 ```
 
 ### Threat model this addresses
@@ -57,9 +64,11 @@ flowchart LR
     B -->|Non-exploitable / dev-only / false positive| D[Log to Audit Trail]
     B -->|Exploitable but within SLA| E[Track, Don't Block]
 
-    style C fill:#fdd,stroke:#900,stroke-width:2px
-    style D fill:#eef,stroke:#669,stroke-width:1px
-    style E fill:#ffd,stroke:#990,stroke-width:1px
+    style C fill:#c41e3a,color:#fff,stroke:#900,stroke-width:2px
+    style D fill:#1e40af,color:#fff,stroke:#0c2340
+    style E fill:#d97706,color:#fff,stroke:#b45309
+    style A fill:#f5f5f5,color:#000,stroke:#333
+    style B fill:#f5f5f5,color:#000,stroke:#333
 ```
 
 **Impact (target metrics for this framework):** ~42% reduction in false-positive pipeline noise; mean time to remediate down from 21 days to 9 days.
@@ -69,41 +78,41 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph Policy["Policy Layer"]
-        P1[policy.rego<br/>triage + FP filtering]
-        P2[sla_gate.rego<br/>SLA enforcement]
-        P3[test_data.json<br/>fixture]
+        P1["📋 policy.rego<br/>triage + FP filtering"]
+        P2["📋 sla_gate.rego<br/>SLA enforcement"]
+        P3["📋 test_data.json<br/>fixture"]
     end
 
-    subgraph Orchestration["Orchestration"]
-        O1[process-results.py<br/>runs OPA, sets exit code]
-        O2[create-ticket.py<br/>Jira filing]
-        O3[local-test.sh / opa-debug.sh]
+    subgraph Orchestration["Orchestration Layer"]
+        O1["⚙️ process-results.py<br/>runs OPA, sets exit code"]
+        O2["⚙️ create-ticket.py<br/>Jira filing"]
+        O3["⚙️ local-test.sh / opa-debug.sh"]
     end
 
-    subgraph CI["CI Wiring"]
-        C1[.github/workflows/security-gate.yml]
-        C2[.pre-commit-config.yaml]
-        C3[.checkov.yaml / .tflint.hcl]
+    subgraph CI["CI/CD Wiring"]
+        C1["🔄 .github/workflows/<br/>security-gate.yml"]
+        C2["🔄 .pre-commit-config.yaml"]
+        C3["🔄 .checkov.yaml / .tflint.hcl"]
     end
 
     subgraph Targets["Reference Targets"]
-        T1[terraform/<br/>hardened AWS infra]
-        T2[app/<br/>Dockerfile + server.js]
+        T1["🏗️ terraform/<br/>hardened AWS infra"]
+        T2["📦 app/<br/>Dockerfile + server.js"]
     end
 
     Orchestration --> Policy
     CI --> Orchestration
     CI --> Targets
 
-    style Policy fill:#fef,stroke:#909
-    style Orchestration fill:#eff,stroke:#069
-    style CI fill:#ffe,stroke:#990
-    style Targets fill:#efe,stroke:#090
+    style Policy fill:#4c1d95,color:#fff,stroke:#6b21a8,stroke-width:2px
+    style Orchestration fill:#1e3a8a,color:#fff,stroke:#1e40af,stroke-width:2px
+    style CI fill:#92400e,color:#fff,stroke:#b45309,stroke-width:2px
+    style Targets fill:#15803d,color:#fff,stroke:#16a34a,stroke-width:2px
 ```
 
 ```
 .
-├── .github/workflows/security-gate.yml   # CI pipeline: IaC scan → container scan → OPA gate → deploy
+├── .github/workflows/security-gate.yml   # CI pipeline: OPA gate setup + scanning → gate evaluation
 ├── policies/
 │   ├── policy.rego                       # Exploitability triage + false-positive filtering
 │   ├── sla_gate.rego                     # Severity-weighted SLA enforcement
@@ -117,18 +126,18 @@ flowchart TB
 │   ├── main.tf                           # Reference AWS infra (hardened: private, encrypted, least-privilege)
 │   └── variables.tf
 ├── app/
-│   ├── Dockerfile                        # Reference container for Trivy scanning
+│   ├── Dockerfile                        # Reference Node.js container for Trivy scanning
 │   ├── package.json
 │   └── server.js
-├── .checkov.yaml                         # Checkov ruleset
-├── .tflint.hcl                           # TFLint ruleset
-├── .pre-commit-config.yaml               # Local pre-commit IaC gate
-└── .gitignore
+├── .checkov.yaml                         # Checkov ruleset for IaC scanning
+├── .tflint.hcl                           # TFLint ruleset for Terraform
+├── .gitignore
+└── README.md                             # This file
 ```
 
 ## Policy logic
 
-`policies/policy.rego` and `policies/sla_gate.rego` share the `devsecops.triage` package and are loaded together by OPA:
+`policies/policy.rego` and `policies/sla_gate.rego` share the `devsecops` package and are loaded together by OPA:
 
 ```mermaid
 flowchart TD
@@ -137,21 +146,27 @@ flowchart TD
     FP -->|No| Sev{Severity?}
 
     Sev -->|CRITICAL| Crit{Any CRITICAL not<br/>a confirmed FP?}
-    Crit -->|Yes| Block[BLOCK BUILD]
-    Crit -->|No| Pass[PASS]
+    Crit -->|Yes| Block["🚫 BLOCK BUILD"]
+    Crit -->|No| Pass["✅ PASS"]
 
     Sev -->|HIGH| High{CVSS >= 7.0 OR<br/>known/public/active exploit?}
     High -->|Yes| Block
     High -->|No| Pass
 
     Sev -->|MEDIUM / LOW| SLACheck{Open past<br/>SLA window?}
-    SLACheck -->|Yes| Flag[Flag in<br/>sla_compliance_report<br/>— does not block]
+    SLACheck -->|Yes| Flag["⚠️ Flag in<br/>sla_compliance_report<br/>— does not block"]
     SLACheck -->|No| Pass
 
-    style Block fill:#fdd,stroke:#900,stroke-width:2px
-    style Pass fill:#dfd,stroke:#090,stroke-width:2px
-    style Suppress fill:#eef,stroke:#669
-    style Flag fill:#ffd,stroke:#990
+    style Block fill:#c41e3a,color:#fff,stroke:#8b0000,stroke-width:2px
+    style Pass fill:#2d5016,color:#fff,stroke:#1a3a1a,stroke-width:2px
+    style Suppress fill:#1e3a8a,color:#fff,stroke:#0c2340,stroke-width:2px
+    style Flag fill:#d97706,color:#fff,stroke:#b45309,stroke-width:2px
+    style Start fill:#f5f5f5,color:#000,stroke:#333
+    style FP fill:#f5f5f5,color:#000,stroke:#333
+    style Sev fill:#f5f5f5,color:#000,stroke:#333
+    style Crit fill:#f5f5f5,color:#000,stroke:#333
+    style High fill:#f5f5f5,color:#000,stroke:#333
+    style SLACheck fill:#f5f5f5,color:#000,stroke:#333
 ```
 
 - **Blocking rule:** a `CRITICAL` finding blocks unless every `CRITICAL` in the batch is a confirmed false positive; a `HIGH` finding blocks only if it's also exploitable (`cvss_score >= 7.0`, or a known/public/active exploit flag is set).
@@ -165,79 +180,95 @@ flowchart TD
 | MEDIUM | 14 days |
 | LOW | 30 days |
 
-## Running locally
+## Running in GitHub Actions
 
-Prerequisites: [OPA](https://www.openpolicyagent.org/docs/latest/#running-opa), Python 3.9+, Docker (optional, for the container scan step), [Checkov](https://www.checkov.io/2.Basics/Installing%20Checkov.html) and [TFLint](https://github.com/terraform-linters/tflint) (optional, for the IaC steps).
-
-```bash
-# 1. Validate policy syntax and run a raw OPA query
-bash scripts/opa-debug.sh
-
-# 2. Run the full triage gate against the bundled test fixture
-python3 scripts/process-results.py
-
-# 3. Or run the whole local pipeline in one shot
-bash scripts/local-test.sh
-```
-
-Expected result against the bundled `policies/test_data.json`: the gate **blocks**, because it contains one unmitigated `CRITICAL` (`CVE-2021-12345`, active exploit, 12 days open against a 3-day SLA), while the `HIGH` and `MEDIUM` findings are correctly suppressed as dev/build-only false positives.
-
-To test against your own scan output, point the script at a different payload:
-
-```bash
-python3 scripts/process-results.py path/to/your-scan-results.json
-```
-
-### IaC and container checks
-
-```bash
-tflint --init && tflint terraform/
-checkov --config-file .checkov.yaml -d terraform/
-docker build -t devsecops-gateway:local ./app
-trivy image devsecops-gateway:local
-```
-
-## CI/CD pipeline
-
-`.github/workflows/security-gate.yml` runs on every push/PR to `main`/`develop`:
+The workflow (`.github/workflows/security-gate.yml`) runs on every push/PR to `main` or `develop`:
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Dev as Developer
     participant CI as GitHub Actions
-    participant IaC as Checkov + TFLint
-    participant Cont as Docker + Trivy
-    participant OPA as OPA Gate
+    participant OPA as Setup OPA
+    participant Gate as Process Results
     participant Jira as Jira
     participant Deploy as ArgoCD / K8s
 
     Dev->>CI: push / PR to main or develop
-    par IaC scan
-        CI->>IaC: scan terraform/
-        IaC-->>CI: IaC findings
-    and Container scan
-        CI->>Cont: build + scan app/
-        Cont-->>CI: CVE findings
-    end
-    CI->>OPA: run exploitability + SLA gate
+    CI->>OPA: Install OPA (official action)
+    OPA-->>CI: OPA ready
+    CI->>Gate: python3 scripts/process-results.py
     alt Gate passes (main only)
-        OPA-->>CI: exit 0
+        Gate-->>CI: exit 0 ✅
         CI->>Deploy: hand off to deploy job
     else Gate fails
-        OPA-->>CI: exit non-zero
-        CI->>Jira: file ticket (if JIRA_* secrets set)
-        Note over CI,Jira: otherwise logs payload that would have been sent
+        Gate-->>CI: exit 1 ❌
+        CI->>Jira: file ticket (if secrets configured)
+        Note over CI,Jira: otherwise logs violation to artifacts
     end
 ```
 
-1. Checkov + TFLint against `terraform/`
-2. Docker build + Trivy scan of `app/`
-3. OPA syntax check, then the exploitability + SLA gate via `process-results.py`
-4. On failure: files a Jira ticket (`create-ticket.py`) if `JIRA_*` secrets are configured; otherwise logs the payload that would have been sent
-5. On success (on `main`): hands off to the deploy job, representing the ArgoCD/GitOps sync to Kubernetes
+**Key workflow steps:**
 
-Required repo secrets for full Jira integration: `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_PROJECT_KEY`. Without them, the gate still runs and blocks correctly — it just skips the live ticket.
+1. **Setup OPA** — Uses the official [open-policy-agent/setup-opa](https://github.com/open-policy-agent/setup-opa) GitHub Action (no manual binary download)
+2. **Setup Python** — Installs Python 3.11
+3. **Run Security Gate** — Executes `python3 scripts/process-results.py policies/test_data.json`
+   - Queries OPA for allow/violated_policies/noise_statistics/sla_compliance_report
+   - Renders triage report to stdout
+   - Writes `scan-results/triage-summary.json`
+   - Calls `create-ticket.py` if violations found
+4. **Upload artifacts** — Saves the triage report and violation logs for inspection
+5. **Fail build on violations** — Exits with code 1 if gate blocked (preventing merge)
+
+**Required GitHub repo secrets for Jira integration:**
+- `JIRA_URL` — Base URL of your Jira instance
+- `JIRA_USER` — Jira username or email
+- `JIRA_TOKEN` — Jira API token
+- `JIRA_PROJECT_KEY` — Jira project key (e.g., `DEVSECOPS`)
+
+Without these secrets, the gate still runs and blocks correctly — violations are logged locally in `scan-results/security-gate-violations.log.json`.
+
+## Running locally
+
+**Prerequisites:**
+- [OPA](https://www.openpolicyagent.org/docs/latest/#running-opa) (`opa` command must be in `PATH`)
+- Python 3.11+
+- Docker (optional, for container scanning)
+- Checkov and TFLint (optional, for IaC scanning)
+
+**Quick test against bundled fixture:**
+
+```bash
+python3 scripts/process-results.py policies/test_data.json
+```
+
+Expected result: gate **BLOCKS**, because the fixture contains one unmitigated `CRITICAL` (`CVE-2021-12345`, active exploit, 12 days open against a 3-day SLA), while the `HIGH` and `MEDIUM` findings are correctly suppressed as dev/build-only false positives.
+
+Output includes:
+- Triage report to stdout
+- `scan-results/triage-summary.json` — machine-readable decision
+- `scan-results/security-gate-violations.log.json` — violation log (if violations found)
+
+**Run against your own scan output:**
+
+```bash
+python3 scripts/process-results.py path/to/your-scan-results.json
+```
+
+**Run IaC & container checks locally:**
+
+```bash
+# Terraform linting
+tflint --init
+tflint terraform/
+
+# IaC scanning
+checkov --config-file .checkov.yaml -d terraform/
+
+# Container scanning
+docker build -t devsecops-gateway:local ./app
+trivy image devsecops-gateway:local
+```
 
 ## Extending this project
 
@@ -245,6 +276,7 @@ Required repo secrets for full Jira integration: `JIRA_BASE_URL`, `JIRA_EMAIL`, 
 - Add a Jenkins `Jenkinsfile` alongside the GitHub Actions workflow for hybrid pipeline environments.
 - Add ArgoCD `Application` manifests under a `gitops/` directory to complete the deploy job.
 - Tune `excluded_packages`, `false_positive_patterns`, and per-severity SLA windows in `policies/` to match organizational risk tolerance.
+- Connect Slack notifications via GitHub Actions to alert teams of blocked gates.
 
 ## License
 
