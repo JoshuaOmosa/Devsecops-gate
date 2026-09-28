@@ -7,10 +7,12 @@ on:
     branches: [main, develop]
 
 jobs:
-  security-scan:
+  security-gate:
     runs-on: ubuntu-latest
-    outputs:
-      gate-blocked: ${{ steps.gate.outputs.blocked }}
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     
     steps:
       - name: Checkout code
@@ -21,61 +23,76 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install OPA
+      - name: Download OPA
         run: |
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_x86_64
-          chmod +x opa
-          sudo mv opa /usr/local/bin/
+          mkdir -p ~/bin
+          curl -sL https://openpolicyagent.org/downloads/latest/opa_linux_x86_64 -o ~/bin/opa
+          chmod +x ~/bin/opa
+          echo "$HOME/bin" >> $GITHUB_PATH
+          opa version
       
-      - name: Run exploitability + SLA triage gate
+      - name: Run Security Gate
         id: gate
         run: |
           python3 scripts/process-results.py policies/test_data.json
           EXIT_CODE=$?
-          if [ $EXIT_CODE -eq 1 ]; then
-            echo "blocked=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          exit $EXIT_CODE
-        continue-on-error: false
+          echo "exit_code=${EXIT_CODE}" >> $GITHUB_OUTPUT
+          exit 0
       
-      - name: Upload triage report
+      - name: Upload Triage Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: triage-summary
-          path: scan-results/triage-summary.json
+          name: security-gate-report
+          path: scan-results/
+          retention-days: 30
       
-      - name: Upload violation log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-violations
-          path: scan-results/security-gate-violations.log.json
-      
-      - name: Comment PR with gate decision
+      - name: Comment on PR with Result
         if: github.event_name == 'pull_request' && always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const blocked = '${{ steps.gate.outputs.blocked }}' === 'true';
-            const summary = JSON.parse(fs.readFileSync('scan-results/triage-summary.json', 'utf8'));
+            const path = require('path');
             
-            const comment = blocked 
-              ? `❌ **Security Gate BLOCKED**\n\n**Violations:**\n${summary.violated_policies.map(v => `- ${v}`).join('\n')}`
-              : '✅ Security Gate PASSED';
+            let body = '';
+            try {
+              const summaryPath = 'scan-results/triage-summary.json';
+              if (fs.existsSync(summaryPath)) {
+                const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+                const blocked = ${{ steps.gate.outputs.exit_code }} === 1;
+                const icon = blocked ? '❌' : '✅';
+                
+                body = `${icon} **DevSecOps Security Gate**\n\n`;
+                body += `**Findings:** ${summary.noise_statistics?.total_findings || 0}\n`;
+                body += `**Actionable:** ${summary.noise_statistics?.actionable_findings || 0}\n`;
+                body += `**Noise Reduction:** ${summary.noise_statistics?.noise_reduction_percentage || 0}%\n\n`;
+                
+                if (summary.violated_policies?.length > 0) {
+                  body += `**Violations:**\n`;
+                  summary.violated_policies.forEach(v => {
+                    body += `- ${v}\n`;
+                  });
+                }
+              }
+            } catch (e) {
+              body = '⚠️ Could not parse security gate report';
+            }
             
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
+            if (body) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
       
-      - name: Fail if gate blocked
-        if: steps.gate.outputs.blocked == 'true'
+      - name: Determine Build Status
         run: |
-          echo "Security gate blocked due to policy violations"
-          cat scan-results/triage-summary.json
-          exit 1
+          EXIT_CODE=${{ steps.gate.outputs.exit_code }}
+          if [ "$EXIT_CODE" -eq 1 ]; then
+            echo "Security gate blocked due to policy violations"
+            exit 1
+          fi
+          exit 0
