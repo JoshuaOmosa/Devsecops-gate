@@ -26,11 +26,12 @@ $OPA_CMD check "$POLICIES_DIR/sla_gate.rego" && echo "  sla_gate.rego: valid"
 echo ""
 
 echo "Test 2: Allow decision"
-$OPA_CMD eval --data "$POLICIES_DIR" --input "$TEST_DATA" "data.devsecops.triage.allow" --format json
+$OPA_CMD eval --data "$POLICIES_DIR" --input "$TEST_DATA" "data.devsecops.allow" --format json
 echo ""
 
-echo "Test 3: Full triage bundle"
-$OPA_CMD eval --data "$POLICIES_DIR" --input "$TEST_DATA" "data.devsecops.triage" --format json
+echo "Test 3: Violations and SLA report"
+$OPA_CMD eval --data "$POLICIES_DIR" --input "$TEST_DATA" "data.devsecops.violated_policies" --format json
+$OPA_CMD eval --data "$POLICIES_DIR" --input "$TEST_DATA" "data.devsecops.triage.sla_compliance_report" --format json
 echo ""
 
 echo "Debug session complete."

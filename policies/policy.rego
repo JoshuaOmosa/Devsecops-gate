@@ -34,7 +34,8 @@ high_exploitable_vulnerability_allowed if {
 
 high_exploitable_vulnerability_allowed if {
     high_vulns := [v | v := input.vulnerabilities[_]; v.severity == "HIGH"]
-    exploitable_high := [v | v := high_vulns[_]; is_exploitable(v)]
+    # Confirmed false positives are suppressed from the block decision, as for CRITICAL.
+    exploitable_high := [v | v := high_vulns[_]; is_exploitable(v); not is_false_positive(v)]
     count(exploitable_high) == 0
 }
 

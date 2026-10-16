@@ -1,0 +1,31 @@
+{
+  "scan_date": "2024-09-14T10:30:00Z",
+  "vulnerabilities": [
+    {
+      "id": "CVE-2023-44270",
+      "package_name": "postcss",
+      "package_version": "8.4.21",
+      "severity": "MEDIUM",
+      "cvss_score": 5.3,
+      "description": "Line return parsing issue",
+      "discovered_date": "2024-09-08T00:00:00Z",
+      "exploit_available": false,
+      "public_exploit": false,
+      "active_exploitation": false,
+      "false_positive": false
+    },
+    {
+      "id": "CVE-2022-67890",
+      "package_name": "express",
+      "package_version": "4.17.1",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "description": "Security update no fix available - dev dependency only",
+      "discovered_date": "2024-09-10T00:00:00Z",
+      "exploit_available": false,
+      "public_exploit": false,
+      "active_exploitation": false,
+      "false_positive": true
+    }
+  ]
+}

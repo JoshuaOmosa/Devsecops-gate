@@ -116,12 +116,14 @@ flowchart TB
 ├── policies/
 │   ├── policy.rego                       # Exploitability triage + false-positive filtering
 │   ├── sla_gate.rego                     # Severity-weighted SLA enforcement
-│   └── test_data.json                    # Sample scan payload for local testing
+│   ├── policy_test.rego                  # 15 OPA unit tests for the block / pass / SLA decisions
+│   └── test_data.json                    # Sample scan with an unmitigated CRITICAL (must BLOCK)
 ├── scripts/
 │   ├── process-results.py                # Runs OPA, renders the triage report, sets exit code
 │   ├── create-ticket.py                  # Files a Jira ticket on gate failure (env-var driven)
 │   ├── local-test.sh                     # One-shot local pipeline dry run
 │   └── opa-debug.sh                      # Rego syntax check + raw policy query
+├── tests/fixtures/clean_scan.json        # Sample scan with nothing blocking (must PASS)
 ├── terraform/
 │   ├── main.tf                           # Reference AWS infra (hardened: private, encrypted, least-privilege)
 │   └── variables.tf
@@ -137,7 +139,7 @@ flowchart TB
 
 ## Policy logic
 
-`policies/policy.rego` and `policies/sla_gate.rego` share the `devsecops` package and are loaded together by OPA:
+`policies/policy.rego` (package `devsecops`) and `policies/sla_gate.rego` (package `devsecops.triage`) are loaded together by OPA. The block decision is `data.devsecops.allow`; the SLA report is `data.devsecops.triage.sla_compliance_report`:
 
 ```mermaid
 flowchart TD
@@ -197,7 +199,9 @@ sequenceDiagram
     Dev->>CI: push / PR to main or develop
     CI->>OPA: Install OPA (official action)
     OPA-->>CI: OPA ready
-    CI->>Gate: python3 scripts/process-results.py
+    CI->>OPA: opa check --strict + opa test (15 policy tests)
+    CI->>Gate: violating fixture must BLOCK
+    CI->>Gate: python3 scripts/process-results.py $GATE_INPUT
     alt Gate passes (main only)
         Gate-->>CI: exit 0 ✅
         CI->>Deploy: hand off to deploy job
@@ -210,15 +214,16 @@ sequenceDiagram
 
 **Key workflow steps:**
 
-1. **Setup OPA** — Uses the official [open-policy-agent/setup-opa](https://github.com/open-policy-agent/setup-opa) GitHub Action (no manual binary download)
-2. **Setup Python** — Installs Python 3.11
-3. **Run Security Gate** — Executes `python3 scripts/process-results.py policies/test_data.json`
+1. **Policy unit tests** (`policy-tests` job). `opa check --strict` validates the Rego, and `opa test policies -v` runs the 15 tests in `policies/policy_test.rego`. These cover every block and pass rule, the false-positive handling, and the SLA report. The gate job only runs if these pass.
+2. **Setup OPA and Python.** Uses the official [open-policy-agent/setup-opa](https://github.com/open-policy-agent/setup-opa) action, pinned to OPA 1.20.2, plus Python 3.11.
+3. **Gate blocks a violating scan.** Runs the gate on `policies/test_data.json`, which contains an unmitigated CRITICAL, and **fails the workflow if the gate lets it through**. This proves on every run that the gate really blocks.
+4. **Run Security Gate.** Executes `python3 scripts/process-results.py "$GATE_INPUT"` with no `continue-on-error`, so a BLOCK decision fails the build. `GATE_INPUT` currently points at the clean sample scan (`tests/fixtures/clean_scan.json`); point it at real scanner output to gate a real build.
    - Queries OPA for allow/violated_policies/noise_statistics/sla_compliance_report
    - Renders triage report to stdout
    - Writes `scan-results/triage-summary.json`
    - Calls `create-ticket.py` if violations found
-4. **Upload artifacts** — Saves the triage report and violation logs for inspection
-5. **Fail build on violations** — Exits with code 1 if gate blocked (preventing merge)
+5. **Upload artifacts** — Saves the triage report and violation logs for inspection
+6. **Fail build on violations** — Exits with code 1 if the gate blocked, which fails the check and can be required before merging (branch protection)
 
 **Required GitHub repo secrets for Jira integration:**
 - `JIRA_URL` — Base URL of your Jira instance
@@ -242,12 +247,19 @@ Without these secrets, the gate still runs and blocks correctly — violations a
 python3 scripts/process-results.py policies/test_data.json
 ```
 
-Expected result: gate **BLOCKS**, because the fixture contains one unmitigated `CRITICAL` (`CVE-2021-12345`, active exploit, 12 days open against a 3-day SLA), while the `HIGH` and `MEDIUM` findings are correctly suppressed as dev/build-only false positives.
+Expected result: gate **BLOCKS**, because the fixture contains one unmitigated `CRITICAL` (`CVE-2021-12345`, active exploit, 13 days open against a 3-day SLA), while the `HIGH` and `MEDIUM` findings are correctly suppressed as dev/build-only false positives.
 
 Output includes:
 - Triage report to stdout
 - `scan-results/triage-summary.json` — machine-readable decision
 - `scan-results/security-gate-violations.log.json` — violation log (if violations found)
+
+**Run the policy tests and the passing case:**
+
+```bash
+opa test policies -v                                       # 15 tests
+python3 scripts/process-results.py tests/fixtures/clean_scan.json   # gate PASSES, exit 0
+```
 
 **Run against your own scan output:**
 

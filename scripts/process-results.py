@@ -91,10 +91,11 @@ def fetch_all_outputs(input_path: str) -> dict:
         }
     
     # Query SLA compliance
-    sla = run_opa_query(input_path, "data.sla_gate.sla_compliance_report")
-    # sla_compliance_report is a set with one element
-    if sla and isinstance(sla, list) and len(sla) > 0:
-        decision["sla_compliance_report"] = sla[0]
+    # sla_gate.rego is package devsecops.triage; sla_compliance_report is a
+    # single object (not a set), so take it as-is.
+    sla = run_opa_query(input_path, "data.devsecops.triage.sla_compliance_report")
+    if isinstance(sla, dict):
+        decision["sla_compliance_report"] = sla
     else:
         decision["sla_compliance_report"] = {
             "overall_status": "UNKNOWN",
@@ -122,9 +123,10 @@ def render_report(decision: dict) -> bool:
     print(f"Excluded packages : {noise.get('excluded_packages_filtered', 0)}")
     print(f"Noise reduction   : {noise.get('noise_reduction_percentage', 0)}%")
     
+    print(f"\nSLA status        : {sla.get('overall_status', 'UNKNOWN')}")
+    print(f"SLA compliance    : {sla.get('compliance_percentage', 0)}%")
     if sla.get("violations_detail"):
-        print(f"\nSLA status        : {sla.get('overall_status', 'UNKNOWN')}")
-        print(f"SLA compliance    : {sla.get('compliance_percentage', 0)}%")
+        # SLA breaches are reported and ticketed but do not block on their own.
         for v in sla.get("violations_detail", []):
             print(f"  [SLA BREACH] {v['vulnerability_id']} ({v['severity']}) "
                   f"in '{v['package']}' — {v['overdue_by_days']}d over "
